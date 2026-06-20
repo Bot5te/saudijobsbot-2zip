@@ -411,11 +411,19 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """عرض إحصائيات المستخدم"""
+    """عرض إحصائيات المستخدم مع اقتراح AI"""
     query = update.callback_query
     await query.answer()
     telegram_id = update.effective_user.id
     stats = get_user_stats(telegram_id)
+    user = get_user(telegram_id)
+
+    # اقتراح AI لتحسين الملف الشخصي
+    try:
+        from utils.ai_helper import ai_suggest_improvements
+        suggestion = ai_suggest_improvements(user) if user else ""
+    except Exception:
+        suggestion = ""
 
     text = (
         "📊 *إحصائياتك*\n"
@@ -425,6 +433,9 @@ async def show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "━━━━━━━━━━━━━━━━\n"
         "_استمر في التقديم، النجاح قادم_ 💪"
     )
+
+    if suggestion:
+        text += f"\n\n{suggestion}"
 
     await query.edit_message_text(
         text, parse_mode=ParseMode.MARKDOWN,
@@ -558,20 +569,60 @@ async def show_cv_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def show_career_tips(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نصائح مهنية"""
+    """نصائح مهنية مدعومة بالذكاء الاصطناعي"""
     query = update.callback_query
     await query.answer()
-    tips = [
+    telegram_id = update.effective_user.id
+    user = get_user(telegram_id)
+
+    await query.edit_message_text(
+        "🤖 _جاري توليد نصيحة مخصصة لك بالذكاء الاصطناعي..._",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+    # نصائح احتياطية
+    fallback_tips = [
         "📌 *خصّص سيرتك الذاتية لكل وظيفة*\nاجعل الكلمات المفتاحية تطابق الوصف الوظيفي.",
         "📌 *قدّم خلال أول 24 ساعة*\nالمتقدمون الأوائل يحظون باهتمام أكبر.",
         "📌 *أضف ملف LinkedIn قوي*\n85% من أصحاب العمل يتحققون من LinkedIn قبل المقابلة.",
         "📌 *لا تترك خانة الراتب فارغة*\nضع نطاقاً بحثت عنه مسبقاً في السوق.",
         "📌 *خطاب التقديم يُفرق*\nوظيفة مخصصة أفضل من عشر وظائف عشوائية.",
     ]
-    import random
-    tip = random.choice(tips)
+
+    try:
+        from utils.ai_helper import get_groq_client, MODEL
+        client = get_groq_client()
+
+        if client and user:
+            spec = user.get("specialization") or user.get("category") or "عام"
+            exp = user.get("experience_level") or "غير محدد"
+            region = user.get("region") or "السعودية"
+
+            prompt = f"""أنت مستشار مهني خبير بسوق العمل السعودي.
+قدم نصيحة مهنية عملية ومحددة لشخص يبحث عن عمل بهذه المواصفات:
+- التخصص: {spec}
+- الخبرة: {exp}
+- المنطقة: {region}
+
+اكتب نصيحة واحدة قصيرة ومفيدة (3-5 جمل) تتعلق بسوق العمل السعودي تحديداً.
+ابدأها بـ 📌 ثم عنوان بارز، ثم الشرح."""
+
+            response = client.chat.completions.create(
+                model=MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.8,
+                max_tokens=200,
+            )
+            tip = response.choices[0].message.content.strip()
+        else:
+            import random
+            tip = random.choice(fallback_tips)
+    except Exception:
+        import random
+        tip = random.choice(fallback_tips)
+
     await query.edit_message_text(
-        f"💡 *نصيحة مهنية اليوم*\n\n{tip}",
+        f"💡 *نصيحة مهنية مخصصة لك*\n\n{tip}\n\n_🤖 مدعوم بالذكاء الاصطناعي_",
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=get_back_to_menu_keyboard()
     )

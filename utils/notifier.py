@@ -21,6 +21,119 @@ logger = logging.getLogger(__name__)
 # تحليل نص الوظيفة
 # ─────────────────────────────────────────
 
+def _parse_job_smart(text: str, message_id: int, channel: str) -> dict:
+    """
+    تحليل ذكي للوظيفة: يجرب Groq AI أولاً، ثم يرجع لـ regex كاحتياط
+    """
+    from utils.ai_helper import ai_parse_job
+
+    # الخطوة 1: محاولة التحليل بالذكاء الاصطناعي
+    ai_result = ai_parse_job(text)
+
+    if ai_result:
+        logger.info("🤖 تم تحليل الوظيفة بالذكاء الاصطناعي")
+        # تطبيع المنطقة لتتطابق مع قيم الإعدادات
+        region = _normalize_region(ai_result.get("region", ""))
+        # تطبيع التخصص ليتطابق مع الفئات المعرّفة
+        category = _normalize_category(ai_result.get("category", ""))
+
+        job = {
+            "channel_message_id": message_id,
+            "source_channel": channel,
+            "raw_text": text,
+            "title": (ai_result.get("title") or "وظيفة جديدة")[:100],
+            "company": (ai_result.get("company") or "")[:100],
+            "region": region,
+            "category": category,
+            "specialization": (ai_result.get("specialization") or "")[:100],
+            "apply_link": None,
+            "apply_email": None,
+            "salary": (ai_result.get("salary") or "")[:80],
+            "work_type": ai_result.get("work_type") or "",
+            "deadline": (ai_result.get("deadline") or "")[:50],
+            "requirements": (ai_result.get("requirements") or "")[:300],
+            "description": text[:500],
+        }
+
+        # نستخرج الإيميل والرابط بـ regex دائماً (موثوق أكثر)
+        email_m = re.search(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}", text)
+        if email_m:
+            job["apply_email"] = email_m.group(0)
+        url_m = re.search(r"https?://[^\s\"'<>،,]+", text)
+        if url_m:
+            job["apply_link"] = _clean_url(url_m.group(0))
+
+        return job
+
+    # الخطوة 2: احتياط بـ regex التقليدي
+    logger.info("🔍 تم تحليل الوظيفة بـ regex (Groq غير متاح)")
+    return parse_job_from_text(text, message_id, channel)
+
+
+def _normalize_region(region_text: str) -> str:
+    """تطبيع اسم المنطقة ليتطابق مع قائمة SAUDI_REGIONS"""
+    if not region_text:
+        return ""
+    from config.settings import SAUDI_REGIONS
+    region_text = region_text.strip()
+    # بحث مباشر
+    for r in SAUDI_REGIONS:
+        if r in region_text or region_text in r:
+            return r
+    # بحث بكلمات مفتاحية
+    keywords = {
+        "رياض": "الرياض", "جده": "جدة", "جدة": "جدة",
+        "مكة": "مكة المكرمة", "مدينة": "المدينة المنورة",
+        "دمام": "الدمام", "خبر": "الخبر", "أحساء": "الأحساء",
+        "طائف": "الطائف", "تبوك": "تبوك", "أبها": "أبها",
+        "remote": "عن بُعد (Remote)", "بُعد": "عن بُعد (Remote)",
+        "بعد": "عن بُعد (Remote)", "جازان": "جازان",
+        "نجران": "نجران", "حائل": "حائل",
+    }
+    text_lower = region_text.lower()
+    for kw, val in keywords.items():
+        if kw in text_lower or kw in region_text:
+            return val
+    return region_text  # إرجاع النص الأصلي إن لم يُعثر
+
+
+def _normalize_category(category_text: str) -> str:
+    """تطبيع التخصص ليتطابق مع JOB_CATEGORIES"""
+    if not category_text:
+        return ""
+    from config.settings import JOB_CATEGORIES
+    # بحث مباشر
+    for cat in JOB_CATEGORIES.keys():
+        cat_clean = cat.split(" ", 1)[-1] if " " in cat else cat
+        if cat_clean in category_text or category_text in cat_clean:
+            return cat
+    # بحث بكلمات مفتاحية
+    keywords = {
+        "تقني": "💻 تقنية المعلومات",
+        "برمج": "💻 تقنية المعلومات",
+        "IT": "💻 تقنية المعلومات",
+        "هندس": "🏗️ الهندسة",
+        "engineer": "🏗️ الهندسة",
+        "صح": "🏥 الصحة والطب",
+        "طب": "🏥 الصحة والطب",
+        "تعليم": "📚 التعليم",
+        "معلم": "📚 التعليم",
+        "إدار": "💼 الإدارة والأعمال",
+        "محاسب": "💼 الإدارة والأعمال",
+        "مبيعات": "💼 الإدارة والأعمال",
+        "قانون": "⚖️ القانون والشريعة",
+        "تصميم": "🎨 الإبداع والتصميم",
+        "لوجستيك": "📦 اللوجستيك والنقل",
+        "ضيافة": "🍽️ الضيافة والسياحة",
+        "فندق": "🍽️ الضيافة والسياحة",
+        "فني": "🔧 الفنيون والحرفيون",
+    }
+    for kw, val in keywords.items():
+        if kw in category_text:
+            return val
+    return category_text
+
+
 def _clean_url(url: str) -> str:
     """تنظيف URL من الأحرف الزائدة في النهاية"""
     return url.rstrip(".,;:)\"'><")
@@ -267,8 +380,8 @@ async def process_channel_message(bot: Bot, message_text: str, message_id: int, 
     if not message_text or len(message_text) < 20:
         return 0
 
-    # تحليل الوظيفة
-    job_data = parse_job_from_text(message_text, message_id, channel)
+    # تحليل الوظيفة — نجرب AI أولاً ثم regex كاحتياط
+    job_data = _parse_job_smart(message_text, message_id, channel)
 
     # حفظ الوظيفة
     job_id = save_job(job_data)

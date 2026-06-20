@@ -82,7 +82,8 @@ def send_application_email(
     company: str,
     cv_path: Optional[str] = None,
     cv_bytes: Optional[bytes] = None,
-    cv_filename: str = "CV.pdf"
+    cv_filename: str = "CV.pdf",
+    cover_letter: Optional[str] = None
 ) -> tuple[bool, str]:
     """
     إرسال إيميل التقديم من إيميل المتقدم نفسه
@@ -94,7 +95,8 @@ def send_application_email(
         msg["To"] = recipient_email
         msg["Subject"] = f"طلب توظيف - {job_title} | {applicant_name}"
 
-        body = f"""السلام عليكم ورحمة الله وبركاته،
+        # استخدام خطاب التقديم المُولَّد بالذكاء الاصطناعي إن وُجد
+        body = cover_letter if cover_letter else f"""السلام عليكم ورحمة الله وبركاته،
 
 أتقدم بطلبي للانضمام إلى فريقكم في وظيفة {job_title} بشركة {company}.
 
@@ -343,6 +345,14 @@ async def execute_auto_apply(
         except Exception as e:
             print(f"⚠️ لم يتمكن من تنزيل CV: {e}")
 
+    # توليد خطاب تقديم بالذكاء الاصطناعي
+    await bot.send_message(
+        chat_id=chat_id,
+        text="🤖 جاري توليد خطاب تقديم مخصص بالذكاء الاصطناعي..."
+    )
+    from utils.ai_helper import ai_generate_cover_letter
+    cover_letter = ai_generate_cover_letter(user, job)
+
     # إرسال الإيميل
     applicant_name = user.get("full_name_ar") or user.get("full_name_en") or "المتقدم"
     success, error = send_application_email(
@@ -353,7 +363,8 @@ async def execute_auto_apply(
         job_title=job.get("title", "الوظيفة"),
         company=job.get("company", "الشركة"),
         cv_bytes=bytes(cv_bytes) if cv_bytes else None,
-        cv_filename=cv_filename
+        cv_filename=cv_filename,
+        cover_letter=cover_letter
     )
 
     if success:
