@@ -80,8 +80,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await confirm_and_save_profile(update, context)
 
     elif data == "edit_profile_before_save":
-        from handlers.registration import show_profile_summary
         context.user_data["state"] = States.MAIN_MENU
+        await query.answer()
         await query.edit_message_text(
             "✏️ *تعديل الملف الشخصي*\n\nاختر ما تريد تعديله:",
             parse_mode=ParseMode.MARKDOWN,
