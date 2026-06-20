@@ -23,7 +23,7 @@ from handlers.callbacks import handle_callback
 from handlers.edit_profile import handle_edit_text_input
 from utils.email_sender import handle_email_setup_text
 from utils.notifier import process_channel_message
-
+from app import server 
 
 async def handle_all_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -225,4 +225,5 @@ def main():
 
 
 if __name__ == "__main__":
+    server()
     main()
